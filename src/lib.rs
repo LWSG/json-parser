@@ -46,6 +46,45 @@ impl<'a> Parser<'a> {
                     _ => Err(ParserError::UnExpectedToken(s)),
                 }
             }
+            '0'..='9' | '-' => {
+                let is_zero = *self.peek()? == '0';
+                let mut s = String::from(self.next()?);
+
+                let mut is_float = false;
+                while let Ok(ch) = self.peek() {
+                    if *ch == '.' || *ch == 'e' || *ch == 'E' {
+                        s.push(self.next()?);
+                        is_float = true;
+                    } else if ch.is_numeric() {
+                        s.push(self.next()?);
+                    } else {
+                        break;
+                    }
+                }
+                if is_float {
+                    match s.parse() {
+                        Ok(f) => {
+                            if is_zero && f != 0.0 {
+                                Err(ParserError::UnExpectedToken(s))
+                            } else {
+                                Ok(Value::Float(f))
+                            }
+                        }
+                        Err(_) => Err(ParserError::UnExpectedToken(s)),
+                    }
+                } else {
+                    match s.parse() {
+                        Ok(f) => {
+                            if is_zero && f != 0 {
+                                Err(ParserError::UnExpectedToken(s))
+                            } else {
+                                Ok(Value::Number(f))
+                            }
+                        }
+                        _ => Err(ParserError::UnExpectedToken(s)),
+                    }
+                }
+            }
             _ => Err(ParserError::UnExpectedEOF),
         }
     }
@@ -136,6 +175,26 @@ mod tests {
             Err(err) => match err {
                 ParserError::UnExpectedToken(s) => {
                     assert_eq!(s.as_str(), "nu");
+                }
+                _ => panic!(),
+            },
+        }
+    }
+    #[test]
+    fn number_float() {
+        assert_eq!(
+            Parser::new("-12342").parse_value().unwrap(),
+            Value::Number(-12342)
+        );
+        assert_eq!(
+            Parser::new("-1.23E03").parse_value().unwrap(),
+            Value::Float(-1.23E03)
+        );
+        match Parser::new("0123").parse_value() {
+            Ok(_) => panic!(),
+            Err(err) => match err {
+                ParserError::UnExpectedToken(s) => {
+                    assert_eq!("0123", s.as_str());
                 }
                 _ => panic!(),
             },
