@@ -27,6 +27,19 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Value, ParserError> {
         Err(ParserError::UnExpectedEOF)
     }
+    fn parse_escaped(&mut self) -> Result<char, ParserError> {
+        match self.next()? {
+            '\"' => Ok('\"'),
+            '\\' => Ok('\\'),
+            '/' => Ok('/'),
+            'b' => Ok('\u{8}'),
+            'f' => Ok('\u{C}'),
+            'n' => Ok('\u{A}'),
+            'r' => Ok('\u{D}'),
+            't' => Ok('\u{9}'),
+            ch => Err(ParserError::UnExpectedToken(format!("\\{}", ch).to_owned())),
+        }
+    }
     fn parse_value(&mut self) -> Result<Value, ParserError> {
         match *self.peek()? {
             't' | 'f' | 'n' => {
@@ -44,6 +57,24 @@ impl<'a> Parser<'a> {
                     "false" => Ok(Value::Bool(false)),
                     "null" => Ok(Value::Null),
                     _ => Err(ParserError::UnExpectedToken(s)),
+                }
+            }
+            '\"' => {
+                self.next()?;
+                let mut s = String::new();
+                let mut integ_string = false;
+                while let Ok(ch) = self.next() {
+                    if ch == '\"' {
+                        integ_string = true;
+                        break;
+                    } else {
+                        s.push(ch);
+                    }
+                }
+                if integ_string {
+                    Ok(Value::Str(s))
+                } else {
+                    Err(ParserError::ExpectedChar('\"'))
                 }
             }
             '0'..='9' | '-' => {
@@ -155,27 +186,21 @@ mod tests {
         match Parser::new("flase").parse_value() {
             Ok(_) => panic!(),
             Err(err) => match err {
-                ParserError::UnExpectedToken(s) => {
-                    assert_eq!(s.as_str(), "flase");
-                }
+                ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "flase"),
                 _ => panic!(),
             },
         }
         match Parser::new("ture").parse_value() {
             Ok(_) => panic!(),
             Err(err) => match err {
-                ParserError::UnExpectedToken(s) => {
-                    assert_eq!(s.as_str(), "ture");
-                }
+                ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "ture"),
                 _ => panic!(),
             },
         }
         match Parser::new("nu ll").parse_value() {
             Ok(_) => panic!(),
             Err(err) => match err {
-                ParserError::UnExpectedToken(s) => {
-                    assert_eq!(s.as_str(), "nu");
-                }
+                ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "nu"),
                 _ => panic!(),
             },
         }
@@ -193,11 +218,27 @@ mod tests {
         match Parser::new("0123").parse_value() {
             Ok(_) => panic!(),
             Err(err) => match err {
-                ParserError::UnExpectedToken(s) => {
-                    assert_eq!("0123", s.as_str());
-                }
+                ParserError::UnExpectedToken(s) => assert_eq!("0123", s.as_str()),
                 _ => panic!(),
             },
         }
+    }
+    #[test]
+    fn string() {
+        assert_eq!(
+            Parser::new("\"hello\"").parse_value().unwrap(),
+            Value::Str("hello".to_owned())
+        );
+        match Parser::new("\"hello").parse_value() {
+            Ok(_) => panic!(),
+            Err(err) => match err {
+                ParserError::ExpectedChar(c) => assert_eq!(c, '\"'),
+                _ => panic!(),
+            },
+        }
+        assert_eq!(
+            Parser::new("\"hello\n\"").parse_value().unwrap(),
+            Value::Str("hello\n".to_owned())
+        );
     }
 }
