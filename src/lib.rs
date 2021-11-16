@@ -25,7 +25,7 @@ impl<'a> Parser<'a> {
             '\"' => self.parse_str(),
             '0'..='9' | '-' => self.parse_num(),
             '[' => self.parse_array(),
-            '{'=>unimplemented!(),
+            '{' => self.parse_obj(),
             _ => Err(ParserError::UnExpectedEOF),
         }
     }
@@ -158,6 +158,43 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Value::Array(v))
+    }
+    fn parse_obj(&mut self) -> Result<Value, ParserError> {
+        self.next()?;
+        self.skip_whitespace();
+        let mut m = HashMap::new();
+        loop {
+            let key = match self.parse_str()? {
+                Value::Str(s) => s,
+                _ => {
+                    panic!();
+                }
+            };
+            self.skip_whitespace();
+            let ch = self.next()?;
+            let value = match ch {
+                ':' => self.parse()?,
+                _ => {
+                    return Err(ParserError::UnExpectedToken(ch.to_string()));
+                }
+            };
+            let ch = self.peek()?;
+            m.insert(key, value);
+            match *ch {
+                '}' => {
+                    self.next()?;
+                    break;
+                }
+                ',' => {
+                    self.next()?;
+                }
+                _ => {
+                    return Err(ParserError::UnExpectedToken(ch.to_string()));
+                }
+            }
+        }
+
+        Ok(Value::Object(m))
     }
     fn skip_whitespace(&mut self) {
         while let Ok(&ch) = self.peek() {
