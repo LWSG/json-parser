@@ -13,7 +13,6 @@ pub struct Parser<'a> {
 pub enum ParserError {
     UnExpectedEOF,
     UnExpectedToken(String),
-    ExpectedChar(char),
 }
 impl<'a> Parser<'a> {
     pub fn new<'b: 'a>(json: &'b str) -> Self {
@@ -25,6 +24,30 @@ impl<'a> Parser<'a> {
     }
     pub fn parse(&mut self) -> Result<Value, ParserError> {
         Err(ParserError::UnExpectedEOF)
+    }
+    fn parse_str(&mut self) -> Result<Value, ParserError> {
+        self.next()?;
+        let mut s = String::new();
+        let mut integ_string = false;
+        while let Ok(ch) = self.next() {
+            match ch {
+                '\"' => {
+                    integ_string = true;
+                    break;
+                }
+                '\\' => {
+                    s.push(self.parse_escaped()?);
+                }
+                _ => {
+                    s.push(ch);
+                }
+            }
+        }
+        if integ_string {
+            Ok(Value::Str(s))
+        } else {
+            Err(ParserError::UnExpectedToken(s))
+        }
     }
     fn parse_escaped(&mut self) -> Result<char, ParserError> {
         match self.next()? {
@@ -41,7 +64,7 @@ impl<'a> Parser<'a> {
                 while let Ok(ch) = self.peek() {
                     if ch.is_numeric() || 'A' <= *ch && *ch <= 'F' {
                         s += &ch.to_string();
-                    }else{
+                    } else {
                         break;
                     }
                     self.next()?;
@@ -52,90 +75,99 @@ impl<'a> Parser<'a> {
             ch => Err(ParserError::UnExpectedToken(format!("\\{}", ch).to_owned())),
         }
     }
-    fn parse_value(&mut self) -> Result<Value, ParserError> {
-        match *self.peek()? {
-            't' | 'f' | 'n' => {
-                let mut s = String::from(self.next().unwrap());
-                while let Ok(ch) = self.next() {
-                    if ch.is_ascii_alphabetic() {
-                        s += &ch.to_string();
-                    } else {
-                        break;
-                    }
+    fn parse_array(&mut self) -> Result<Value, ParserError> {
+        self.next()?;
+        self.skip_whitespace();
+        let mut v = Vec::new();
+        loop {
+            v.push(self.parse_value()?);
+            self.skip_whitespace();
+            let ch = self.peek()?;
+            match *ch {
+                ']' => {
+                    self.next()?;
+                    break;
                 }
-                print!("{}", s);
-                match s.as_str() {
-                    "true" => Ok(Value::Bool(true)),
-                    "false" => Ok(Value::Bool(false)),
-                    "null" => Ok(Value::Null),
-                    _ => Err(ParserError::UnExpectedToken(s)),
+                ',' => {
+                    self.next()?;
                 }
-            }
-            '\"' => {
-                self.next()?;
-                let mut s = String::new();
-                let mut integ_string = false;
-                while let Ok(ch) = self.next() {
-                    if ch == '\"' {
-                        integ_string = true;
-                        break;
-                    } else if ch == '\\' {
-                        s.push(self.parse_escaped()?);
-                    } else {
-                        s.push(ch);
-                    }
-                }
-                if integ_string {
-                    Ok(Value::Str(s))
-                } else {
-                    Err(ParserError::ExpectedChar('\"'))
+                _ => {
+                    return Err(ParserError::UnExpectedToken(ch.to_string()));
                 }
             }
-            '0'..='9' | '-' => {
-                let is_zero = *self.peek()? == '0';
-                let mut s = String::from(self.next()?);
+        }
 
-                let mut is_float = false;
-                while let Ok(ch) = self.peek() {
-                    if *ch == '.' || *ch == 'e' || *ch == 'E' {
-                        s.push(self.next()?);
-                        is_float = true;
-                    } else if ch.is_numeric() {
-                        s.push(self.next()?);
-                    } else {
-                        break;
-                    }
-                }
-                if is_float {
-                    match s.parse() {
-                        Ok(f) => {
-                            if is_zero && f != 0.0 {
-                                Err(ParserError::UnExpectedToken(s))
-                            } else {
-                                Ok(Value::Float(f))
-                            }
-                        }
-                        Err(_) => Err(ParserError::UnExpectedToken(s)),
-                    }
-                } else {
-                    match s.parse() {
-                        Ok(f) => {
-                            if is_zero && f != 0 {
-                                Err(ParserError::UnExpectedToken(s))
-                            } else {
-                                Ok(Value::Number(f))
-                            }
-                        }
-                        _ => Err(ParserError::UnExpectedToken(s)),
-                    }
-                }
+        Ok(Value::Array(v))
+    }
+    fn parse_true_false_null(&mut self) -> Result<Value, ParserError> {
+        let mut s = String::from(self.next().unwrap());
+        while let Ok(ch) = self.peek() {
+            if ch.is_ascii_alphabetic() && *ch != ',' && *ch != ']' && *ch != '}' && *ch != ':' {
+                s += &ch.to_string();
+                self.next()?;
+            } else {
+                break;
             }
+        }
+        match s.as_str() {
+            "true" => Ok(Value::Bool(true)),
+            "false" => Ok(Value::Bool(false)),
+            "null" => Ok(Value::Null),
+            _ => Err(ParserError::UnExpectedToken(s)),
+        }
+    }
+    fn parse_num(&mut self) -> Result<Value, ParserError> {
+        let is_zero = *self.peek()? == '0';
+        let mut s = String::from(self.next()?);
+
+        let mut is_float = false;
+        while let Ok(ch) = self.peek() {
+            if *ch == '.' || *ch == 'e' || *ch == 'E' {
+                s.push(self.next()?);
+                is_float = true;
+            } else if ch.is_numeric() {
+                s.push(self.next()?);
+            } else {
+                break;
+            }
+        }
+        if is_float {
+            match s.parse() {
+                Ok(f) => {
+                    if is_zero && f != 0.0 {
+                        Err(ParserError::UnExpectedToken(s))
+                    } else {
+                        Ok(Value::Float(f))
+                    }
+                }
+                Err(_) => Err(ParserError::UnExpectedToken(s)),
+            }
+        } else {
+            match s.parse() {
+                Ok(f) => {
+                    if is_zero && f != 0 {
+                        Err(ParserError::UnExpectedToken(s))
+                    } else {
+                        Ok(Value::Number(f))
+                    }
+                }
+                _ => Err(ParserError::UnExpectedToken(s)),
+            }
+        }
+    }
+    fn parse_value(&mut self) -> Result<Value, ParserError> {
+        self.skip_whitespace();
+        match *self.peek()? {
+            't' | 'f' | 'n' => self.parse_true_false_null(),
+            '\"' => self.parse_str(),
+            '0'..='9' | '-' => self.parse_num(),
+            '[' => self.parse_array(),
             _ => Err(ParserError::UnExpectedEOF),
         }
     }
     fn skip_whitespace(&mut self) {
         while let Ok(&ch) = self.peek() {
-            if ch == ' ' || ch == '\n' || ch == '\t' {
+            if ch.is_whitespace() {
                 self.next().unwrap();
             } else {
                 break;
@@ -246,7 +278,7 @@ mod tests {
         match Parser::new("\"hello").parse_value() {
             Ok(_) => panic!(),
             Err(err) => match err {
-                ParserError::ExpectedChar(c) => assert_eq!(c, '\"'),
+                ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "hello"),
                 _ => panic!(),
             },
         }
@@ -261,6 +293,20 @@ mod tests {
         assert_eq!(
             Parser::new(r#""\u2764""#).parse_value().unwrap(),
             Value::Str("❤".to_owned())
+        );
+    }
+    #[test]
+    fn array() {
+        assert_eq!(
+            Parser::new("  [12,\"89\",true,[false,null]]")
+                .parse_value()
+                .unwrap(),
+            Value::Array(vec![
+                Value::Number(12),
+                Value::Str("89".to_owned()),
+                Value::Bool(true),
+                Value::Array(vec![Value::Bool(false), Value::Null])
+            ])
         );
     }
 }
