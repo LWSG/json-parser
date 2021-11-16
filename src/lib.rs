@@ -18,6 +18,73 @@ impl<'a> Parser<'a> {
             src: json.chars().peekable(),
         }
     }
+    pub fn parse(&mut self) -> Result<Value, ParserError> {
+        self.skip_whitespace();
+        match *self.peek()? {
+            't' | 'f' | 'n' => self.parse_true_false_null(),
+            '\"' => self.parse_str(),
+            '0'..='9' | '-' => self.parse_num(),
+            '[' => self.parse_array(),
+            '{'=>unimplemented!(),
+            _ => Err(ParserError::UnExpectedEOF),
+        }
+    }
+    fn parse_true_false_null(&mut self) -> Result<Value, ParserError> {
+        let mut s = String::from(self.next().unwrap());
+        while let Ok(ch) = self.peek() {
+            if ch.is_ascii_alphabetic() && *ch != ',' && *ch != ']' && *ch != '}' && *ch != ':' {
+                s += &ch.to_string();
+                self.next()?;
+            } else {
+                break;
+            }
+        }
+        match s.as_str() {
+            "true" => Ok(Value::Bool(true)),
+            "false" => Ok(Value::Bool(false)),
+            "null" => Ok(Value::Null),
+            _ => Err(ParserError::UnExpectedToken(s)),
+        }
+    }
+    fn parse_num(&mut self) -> Result<Value, ParserError> {
+        let is_zero = *self.peek()? == '0';
+        let mut s = String::from(self.next()?);
+
+        let mut is_float = false;
+        while let Ok(ch) = self.peek() {
+            if *ch == '.' || *ch == 'e' || *ch == 'E' {
+                s.push(self.next()?);
+                is_float = true;
+            } else if ch.is_numeric() {
+                s.push(self.next()?);
+            } else {
+                break;
+            }
+        }
+        if is_float {
+            match s.parse() {
+                Ok(f) => {
+                    if is_zero && f != 0.0 {
+                        Err(ParserError::UnExpectedToken(s))
+                    } else {
+                        Ok(Value::Float(f))
+                    }
+                }
+                Err(_) => Err(ParserError::UnExpectedToken(s)),
+            }
+        } else {
+            match s.parse() {
+                Ok(f) => {
+                    if is_zero && f != 0 {
+                        Err(ParserError::UnExpectedToken(s))
+                    } else {
+                        Ok(Value::Number(f))
+                    }
+                }
+                _ => Err(ParserError::UnExpectedToken(s)),
+            }
+        }
+    }
     fn parse_str(&mut self) -> Result<Value, ParserError> {
         self.next()?;
         let mut s = String::new();
@@ -91,72 +158,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(Value::Array(v))
-    }
-    fn parse_true_false_null(&mut self) -> Result<Value, ParserError> {
-        let mut s = String::from(self.next().unwrap());
-        while let Ok(ch) = self.peek() {
-            if ch.is_ascii_alphabetic() && *ch != ',' && *ch != ']' && *ch != '}' && *ch != ':' {
-                s += &ch.to_string();
-                self.next()?;
-            } else {
-                break;
-            }
-        }
-        match s.as_str() {
-            "true" => Ok(Value::Bool(true)),
-            "false" => Ok(Value::Bool(false)),
-            "null" => Ok(Value::Null),
-            _ => Err(ParserError::UnExpectedToken(s)),
-        }
-    }
-    fn parse_num(&mut self) -> Result<Value, ParserError> {
-        let is_zero = *self.peek()? == '0';
-        let mut s = String::from(self.next()?);
-
-        let mut is_float = false;
-        while let Ok(ch) = self.peek() {
-            if *ch == '.' || *ch == 'e' || *ch == 'E' {
-                s.push(self.next()?);
-                is_float = true;
-            } else if ch.is_numeric() {
-                s.push(self.next()?);
-            } else {
-                break;
-            }
-        }
-        if is_float {
-            match s.parse() {
-                Ok(f) => {
-                    if is_zero && f != 0.0 {
-                        Err(ParserError::UnExpectedToken(s))
-                    } else {
-                        Ok(Value::Float(f))
-                    }
-                }
-                Err(_) => Err(ParserError::UnExpectedToken(s)),
-            }
-        } else {
-            match s.parse() {
-                Ok(f) => {
-                    if is_zero && f != 0 {
-                        Err(ParserError::UnExpectedToken(s))
-                    } else {
-                        Ok(Value::Number(f))
-                    }
-                }
-                _ => Err(ParserError::UnExpectedToken(s)),
-            }
-        }
-    }
-    pub fn parse(&mut self) -> Result<Value, ParserError> {
-        self.skip_whitespace();
-        match *self.peek()? {
-            't' | 'f' | 'n' => self.parse_true_false_null(),
-            '\"' => self.parse_str(),
-            '0'..='9' | '-' => self.parse_num(),
-            '[' => self.parse_array(),
-            _ => Err(ParserError::UnExpectedEOF),
-        }
     }
     fn skip_whitespace(&mut self) {
         while let Ok(&ch) = self.peek() {
