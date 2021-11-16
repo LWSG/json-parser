@@ -1,9 +1,8 @@
 mod values;
-use values::Value;
-
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
+use values::Value;
 
 pub struct Parser<'a> {
     src: Peekable<Chars<'a>>,
@@ -37,6 +36,19 @@ impl<'a> Parser<'a> {
             'n' => Ok('\u{A}'),
             'r' => Ok('\u{D}'),
             't' => Ok('\u{9}'),
+            'u' => {
+                let mut s = String::new();
+                while let Ok(ch) = self.peek() {
+                    if ch.is_numeric() || 'A' <= *ch && *ch <= 'F' {
+                        s += &ch.to_string();
+                    }else{
+                        break;
+                    }
+                    self.next()?;
+                }
+                let num = i64::from_str_radix(&s[..], 16).unwrap();
+                Ok(char::from_u32(num as u32).unwrap())
+            }
             ch => Err(ParserError::UnExpectedToken(format!("\\{}", ch).to_owned())),
         }
     }
@@ -67,6 +79,8 @@ impl<'a> Parser<'a> {
                     if ch == '\"' {
                         integ_string = true;
                         break;
+                    } else if ch == '\\' {
+                        s.push(self.parse_escaped()?);
                     } else {
                         s.push(ch);
                     }
@@ -239,6 +253,14 @@ mod tests {
         assert_eq!(
             Parser::new("\"hello\n\"").parse_value().unwrap(),
             Value::Str("hello\n".to_owned())
+        );
+        assert_eq!(
+            Parser::new(r#""\b\f\n\r\t\"""#).parse_value().unwrap(),
+            Value::Str("\u{8}\u{C}\u{A}\u{D}\u{9}\"".to_owned())
+        );
+        assert_eq!(
+            Parser::new(r#""\u2764""#).parse_value().unwrap(),
+            Value::Str("❤".to_owned())
         );
     }
 }
