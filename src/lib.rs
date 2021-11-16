@@ -6,8 +6,6 @@ use values::Value;
 
 pub struct Parser<'a> {
     src: Peekable<Chars<'a>>,
-    pos: usize,
-    len: usize,
 }
 #[derive(Debug)]
 pub enum ParserError {
@@ -17,13 +15,8 @@ pub enum ParserError {
 impl<'a> Parser<'a> {
     pub fn new<'b: 'a>(json: &'b str) -> Self {
         Parser {
-            pos: 0,
-            len: json.len(),
             src: json.chars().peekable(),
         }
-    }
-    pub fn parse(&mut self) -> Result<Value, ParserError> {
-        Err(ParserError::UnExpectedEOF)
     }
     fn parse_str(&mut self) -> Result<Value, ParserError> {
         self.next()?;
@@ -80,7 +73,7 @@ impl<'a> Parser<'a> {
         self.skip_whitespace();
         let mut v = Vec::new();
         loop {
-            v.push(self.parse_value()?);
+            v.push(self.parse()?);
             self.skip_whitespace();
             let ch = self.peek()?;
             match *ch {
@@ -155,7 +148,7 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    fn parse_value(&mut self) -> Result<Value, ParserError> {
+    pub fn parse(&mut self) -> Result<Value, ParserError> {
         self.skip_whitespace();
         match *self.peek()? {
             't' | 'f' | 'n' => self.parse_true_false_null(),
@@ -219,31 +212,25 @@ mod tests {
     }
     #[test]
     fn bool_null() {
-        assert_eq!(
-            Parser::new("true").parse_value().unwrap(),
-            Value::Bool(true)
-        );
-        assert_eq!(
-            Parser::new("false").parse_value().unwrap(),
-            Value::Bool(false)
-        );
-        assert_eq!(Parser::new("null").parse_value().unwrap(), Value::Null);
+        assert_eq!(Parser::new("true").parse().unwrap(), Value::Bool(true));
+        assert_eq!(Parser::new("false").parse().unwrap(), Value::Bool(false));
+        assert_eq!(Parser::new("null").parse().unwrap(), Value::Null);
 
-        match Parser::new("flase").parse_value() {
+        match Parser::new("flase").parse() {
             Ok(_) => panic!(),
             Err(err) => match err {
                 ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "flase"),
                 _ => panic!(),
             },
         }
-        match Parser::new("ture").parse_value() {
+        match Parser::new("ture").parse() {
             Ok(_) => panic!(),
             Err(err) => match err {
                 ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "ture"),
                 _ => panic!(),
             },
         }
-        match Parser::new("nu ll").parse_value() {
+        match Parser::new("nu ll").parse() {
             Ok(_) => panic!(),
             Err(err) => match err {
                 ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "nu"),
@@ -254,14 +241,14 @@ mod tests {
     #[test]
     fn number_float() {
         assert_eq!(
-            Parser::new("-12342").parse_value().unwrap(),
+            Parser::new("-12342").parse().unwrap(),
             Value::Number(-12342)
         );
         assert_eq!(
-            Parser::new("-1.23E03").parse_value().unwrap(),
+            Parser::new("-1.23E03").parse().unwrap(),
             Value::Float(-1.23E03)
         );
-        match Parser::new("0123").parse_value() {
+        match Parser::new("0123").parse() {
             Ok(_) => panic!(),
             Err(err) => match err {
                 ParserError::UnExpectedToken(s) => assert_eq!("0123", s.as_str()),
@@ -272,10 +259,10 @@ mod tests {
     #[test]
     fn string() {
         assert_eq!(
-            Parser::new("\"hello\"").parse_value().unwrap(),
+            Parser::new("\"hello\"").parse().unwrap(),
             Value::Str("hello".to_owned())
         );
-        match Parser::new("\"hello").parse_value() {
+        match Parser::new("\"hello").parse() {
             Ok(_) => panic!(),
             Err(err) => match err {
                 ParserError::UnExpectedToken(s) => assert_eq!(s.as_str(), "hello"),
@@ -283,15 +270,15 @@ mod tests {
             },
         }
         assert_eq!(
-            Parser::new("\"hello\n\"").parse_value().unwrap(),
+            Parser::new("\"hello\n\"").parse().unwrap(),
             Value::Str("hello\n".to_owned())
         );
         assert_eq!(
-            Parser::new(r#""\b\f\n\r\t\"""#).parse_value().unwrap(),
+            Parser::new(r#""\b\f\n\r\t\"""#).parse().unwrap(),
             Value::Str("\u{8}\u{C}\u{A}\u{D}\u{9}\"".to_owned())
         );
         assert_eq!(
-            Parser::new(r#""\u2764""#).parse_value().unwrap(),
+            Parser::new(r#""\u2764""#).parse().unwrap(),
             Value::Str("❤".to_owned())
         );
     }
@@ -299,7 +286,7 @@ mod tests {
     fn array() {
         assert_eq!(
             Parser::new("  [12,\"89\",true,[false,null]]")
-                .parse_value()
+                .parse()
                 .unwrap(),
             Value::Array(vec![
                 Value::Number(12),
