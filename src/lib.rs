@@ -6,13 +6,37 @@ use values::Value;
 
 fn traverse_json(v: &Value) -> String {
     let mut s = String::new();
-    match v {
-        Value::Null => s += "null",
-        Value::Bool(b) => s += if *b { "true" } else { "false" },
-        Value::Number(n)=>s+=format!("{}", n),
-        Value::Str(string) => s += format!("\"{}\"", string),
-        _ => unimplemented!(),
-    }
+    let word = match v {
+        Value::Null => "null".to_owned(),
+        Value::Bool(b) => {
+            if *b {
+                "true".to_owned()
+            } else {
+                "false".to_owned()
+            }
+        }
+        Value::Number(n) => format!("{}", n),
+        Value::Float(n) => format!("{}", n),
+        Value::Str(string) => format!("\"{}\"", string),
+        Value::Array(arr) => {
+            let mut word_array = String::from("[ ");
+            for i in arr {
+                word_array += format!("{}, ", traverse_json(&i)).as_str();
+            }
+            word_array += "]";
+            word_array
+        }
+        Value::Object(obj) => {
+            let mut word_obj = String::from("{ ");
+            for i in obj.keys() {
+                word_obj +=
+                    format!("\"{}\" : {}, ", i, traverse_json(&obj.get(i).unwrap())).as_str();
+            }
+            word_obj += "}";
+            word_obj
+        }
+    };
+    s += word.as_str();
     s
 }
 pub struct Parser<'a> {
@@ -148,9 +172,9 @@ impl<'a> Parser<'a> {
     }
     fn parse_array(&mut self) -> Result<Value, ParserError> {
         self.next()?;
-        self.skip_whitespace();
         let mut v = Vec::new();
         loop {
+            self.skip_whitespace();
             v.push(self.parse()?);
             self.skip_whitespace();
             let ch = self.peek()?;
@@ -161,6 +185,10 @@ impl<'a> Parser<'a> {
                 }
                 ',' => {
                     self.next()?;
+                    self.skip_whitespace();
+                    if *self.peek()? == ']' {
+                        break;
+                    }
                 }
                 _ => {
                     return Err(ParserError::UnExpectedToken(ch.to_string()));
@@ -172,9 +200,9 @@ impl<'a> Parser<'a> {
     }
     fn parse_obj(&mut self) -> Result<Value, ParserError> {
         self.next()?;
-        self.skip_whitespace();
         let mut m = HashMap::new();
         loop {
+            self.skip_whitespace();
             let key = match self.parse_str()? {
                 Value::Str(s) => s,
                 _ => {
@@ -198,6 +226,10 @@ impl<'a> Parser<'a> {
                 }
                 ',' => {
                     self.next()?;
+                    self.skip_whitespace();
+                    if *self.peek()? == '}' {
+                        break;
+                    }
                 }
                 _ => {
                     return Err(ParserError::UnExpectedToken(ch.to_string()));
@@ -334,7 +366,7 @@ mod tests {
     #[test]
     fn array() {
         assert_eq!(
-            Parser::new("  [12,\"89\",true,[false,null]]")
+            Parser::new("  [12,\"89\",true,[false,null],   ]")
                 .parse()
                 .unwrap(),
             Value::Array(vec![
@@ -343,6 +375,38 @@ mod tests {
                 Value::Bool(true),
                 Value::Array(vec![Value::Bool(false), Value::Null])
             ])
+        );
+    }
+    #[test]
+    fn traverse_without_indent() {
+        assert_eq!(traverse_json(&Value::Null), "null");
+        assert_eq!(traverse_json(&Value::Bool(true)), "true");
+        assert_eq!(traverse_json(&Value::Bool(false)), "false");
+        assert_eq!(traverse_json(&Value::Number(1145)), "1145");
+        assert_eq!(traverse_json(&Value::Float(114.514)), "114.514");
+        assert_eq!(
+            traverse_json(&Value::Str("hello json\n".to_owned())),
+            "\"hello json\n\""
+        );
+
+        let json_array = Parser::new("  [12,\"89\",true,[false,null]]")
+            .parse()
+            .unwrap();
+
+        assert_eq!(
+            traverse_json(&json_array),
+            "[ 12, \"89\", true, [ false, null, ], ]"
+        );
+        assert_eq!(
+            traverse_json(&json_array),
+            "[ 12, \"89\", true, [ false, null, ], ]"
+        );
+        let json_obj = Parser::new("{ \"NULL\":null, \"Bool\":[ true,false]}")
+            .parse()
+            .unwrap();
+        assert_eq!(
+            traverse_json(&json_obj),
+            "{ \"NULL\" : null, \"Bool\" : [ true, false, ], }"
         );
     }
 }
