@@ -4,6 +4,17 @@ use std::iter::Peekable;
 use std::str::Chars;
 use values::Value;
 
+fn traverse_json(v: &Value) -> String {
+    let mut s = String::new();
+    match v {
+        Value::Null => s += "null",
+        Value::Bool(b) => s += if *b { "true" } else { "false" },
+        Value::Number(n)=>s+=format!("{}", n),
+        Value::Str(string) => s += format!("\"{}\"", string),
+        _ => unimplemented!(),
+    }
+    s
+}
 pub struct Parser<'a> {
     src: Peekable<Chars<'a>>,
 }
