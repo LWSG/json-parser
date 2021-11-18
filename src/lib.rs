@@ -1,4 +1,5 @@
 mod values;
+
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
@@ -23,7 +24,9 @@ fn traverse_json(v: &Value) -> String {
             for i in arr {
                 word_array += format!("{}, ", traverse_json(&i)).as_str();
             }
-            word_array += "]";
+            word_array.pop();
+            word_array.pop();
+            word_array += " ]";
             word_array
         }
         Value::Object(obj) => {
@@ -32,21 +35,26 @@ fn traverse_json(v: &Value) -> String {
                 word_obj +=
                     format!("\"{}\" : {}, ", i, traverse_json(&obj.get(i).unwrap())).as_str();
             }
-            word_obj += "}";
+            word_obj.pop();
+            word_obj.pop();
+            word_obj += " }";
             word_obj
         }
     };
     s += word.as_str();
     s
 }
+
 pub struct Parser<'a> {
     src: Peekable<Chars<'a>>,
 }
+
 #[derive(Debug)]
 pub enum ParserError {
     UnExpectedEOF,
     UnExpectedToken(String),
 }
+
 impl<'a> Parser<'a> {
     pub fn new<'b: 'a>(json: &'b str) -> Self {
         Parser {
@@ -214,25 +222,32 @@ impl<'a> Parser<'a> {
             let value = match ch {
                 ':' => self.parse()?,
                 _ => {
-                    return Err(ParserError::UnExpectedToken(ch.to_string()));
+                    return Err(ParserError::UnExpectedToken(format!(
+                        "\"{}\"{}",
+                        key,
+                        ch.to_string()
+                    )));
                 }
             };
+            self.skip_whitespace();
             let ch = self.peek()?;
-            m.insert(key, value);
             match *ch {
                 '}' => {
+                    m.insert(key, value);
                     self.next()?;
                     break;
                 }
                 ',' => {
+                    m.insert(key, value);
                     self.next()?;
-                    self.skip_whitespace();
-                    if *self.peek()? == '}' {
-                        break;
-                    }
                 }
                 _ => {
-                    return Err(ParserError::UnExpectedToken(ch.to_string()));
+                    return Err(ParserError::UnExpectedToken(format!(
+                        "\"{}\" : {} {}",
+                        key,
+                        traverse_json(&value),
+                        ch.to_string()
+                    )));
                 }
             }
         }
@@ -255,9 +270,11 @@ impl<'a> Parser<'a> {
         self.src.next().ok_or(ParserError::UnExpectedEOF)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn new_peek_next() {
         let mut parser = Parser::new("He");
@@ -285,12 +302,14 @@ mod tests {
             },
         };
     }
+
     #[test]
     fn skip_whitespace() {
         let mut parser = Parser::new("\t\n    w");
         parser.skip_whitespace();
         assert_eq!(parser.next().unwrap(), 'w');
     }
+
     #[test]
     fn bool_null() {
         assert_eq!(Parser::new("true").parse().unwrap(), Value::Bool(true));
@@ -319,6 +338,7 @@ mod tests {
             },
         }
     }
+
     #[test]
     fn number_float() {
         assert_eq!(
@@ -337,6 +357,7 @@ mod tests {
             },
         }
     }
+
     #[test]
     fn string() {
         assert_eq!(
@@ -363,6 +384,7 @@ mod tests {
             Value::Str("❤".to_owned())
         );
     }
+
     #[test]
     fn array() {
         assert_eq!(
@@ -373,10 +395,11 @@ mod tests {
                 Value::Number(12),
                 Value::Str("89".to_owned()),
                 Value::Bool(true),
-                Value::Array(vec![Value::Bool(false), Value::Null])
+                Value::Array(vec![Value::Bool(false), Value::Null]),
             ])
         );
     }
+
     #[test]
     fn traverse_without_indent() {
         assert_eq!(traverse_json(&Value::Null), "null");
@@ -395,18 +418,37 @@ mod tests {
 
         assert_eq!(
             traverse_json(&json_array),
-            "[ 12, \"89\", true, [ false, null, ], ]"
+            "[ 12, \"89\", true, [ false, null ] ]"
         );
         assert_eq!(
             traverse_json(&json_array),
-            "[ 12, \"89\", true, [ false, null, ], ]"
+            "[ 12, \"89\", true, [ false, null ] ]"
         );
-        let json_obj = Parser::new("{ \"NULL\":null, \"Bool\":[ true,false]}")
-            .parse()
-            .unwrap();
+        let json_obj = Parser::new("{  \"Bool\":[ true,false]}").parse().unwrap();
+        assert_eq!(traverse_json(&json_obj), "{ \"Bool\" : [ true, false ] }");
+    }
+
+    #[test]
+    fn more_json() {
+        let string = r#"
+{
+   "glossary": {
+		"GlossDiv": {
+			"GlossList": {
+                "GlossEntry": {
+					"GlossDef": {
+						"GlossSeeAlso": ["GML", "XML"]
+                    }
+                }
+            }
+        }
+    }
+}
+"#;
         assert_eq!(
-            traverse_json(&json_obj),
-            "{ \"NULL\" : null, \"Bool\" : [ true, false, ], }"
+            "{ \"glossary\" : { \"GlossDiv\" : { \"GlossList\" : { \"GlossEntry\" : \
+            { \"GlossDef\" : { \"GlossSeeAlso\" : [ \"GML\", \"XML\" ] } } } } } }",
+            traverse_json(&Parser::new(string).parse().unwrap())
         );
     }
 }
