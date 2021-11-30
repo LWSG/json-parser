@@ -1,6 +1,6 @@
 [package]
 name = "json-parser"
-authors = "Jiarui Wang"
+author = "JiaruiWang"
 version = "0.1.0"
 edition = "2021"
 readme = "README.md"
